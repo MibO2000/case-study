@@ -2,7 +2,9 @@ package com.mibo2000.linuxlab.business;
 
 import com.mibo2000.linuxlab.BaseResponse;
 import com.mibo2000.linuxlab.Translator;
+import com.mibo2000.linuxlab.business.dto.DummySingleData;
 import com.mibo2000.linuxlab.business.dto.FetchResponse;
+import com.mibo2000.linuxlab.business.dto.FetchSingleResponse;
 import com.mibo2000.linuxlab.business.dto.InsertRequest;
 import com.mibo2000.linuxlab.exception.BusinessException;
 import com.mibo2000.linuxlab.model.EnumPool;
@@ -18,6 +20,7 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
+import org.springframework.data.domain.Range;
 import org.springframework.data.domain.Sort;
 import org.springframework.stereotype.Component;
 
@@ -45,6 +48,10 @@ public class BaseBusinessImp implements BaseBusiness {
     public BaseResponse fetchDummyData(int pageNo, int pageSize) {
         checkRequest(pageNo, pageSize);
         return generateBaseResponse(getDummyResponse(pageNo, pageSize));
+        /*
+        * Another way to get a response
+        * */
+//        return generateBaseResponse(getDummyAnotherResponse(pageNo, pageSize));
     }
 
     @Override
@@ -120,6 +127,33 @@ public class BaseBusinessImp implements BaseBusiness {
                                     .pageNo(pageNo)
                                     .pageSize(pageSize)
                                     .build();
+
+                        } catch (InterruptedException | ExecutionException e) {
+                            log.error("ERROR IN COMPLETABLE FUTURE : " + e);
+                            throw new BusinessException(UNKNOWN);
+                        }
+                    }).get();
+        } catch (InterruptedException | ExecutionException e) {
+            log.error("ERROR OUT OF COMPLETABLE FUTURE : " + e);
+            throw new BusinessException(UNKNOWN);
+        }
+    }
+    private FetchSingleResponse getDummyAnotherResponse(int pageNo, int pageSize) {
+        int startIndex = (pageNo - 1) * pageSize;
+        int endIndex = Math.min(startIndex + pageSize, 30);
+        CompletableFuture<List<Post>> postsFuture = CompletableFuture.supplyAsync(() -> getSortedListOfDummyResponse(EnumPool.DummyType.posts, Post.class).subList(startIndex, endIndex));
+        CompletableFuture<List<Product>> productsFuture = CompletableFuture.supplyAsync(() -> getSortedListOfDummyResponse(EnumPool.DummyType.products, Product.class).subList(startIndex, endIndex));
+        CompletableFuture<List<Quote>> quotesFuture = CompletableFuture.supplyAsync(() -> getSortedListOfDummyResponse(EnumPool.DummyType.quotes, Quote.class).subList(startIndex, endIndex));
+        try {
+            return CompletableFuture.allOf(postsFuture, productsFuture, quotesFuture)
+                    .thenApply(ignored -> {
+                        try {
+                            return FetchSingleResponse.builder()
+                                    .dataList(changeResponseToSingle(postsFuture.get(), productsFuture.get(), quotesFuture.get()))
+                                    .pageNo(pageNo)
+                                    .pageSize(pageSize)
+                                    .build();
+
                         } catch (InterruptedException | ExecutionException e) {
                             log.error("ERROR IN COMPLETABLE FUTURE : " + e);
                             throw new BusinessException(UNKNOWN);
@@ -148,6 +182,16 @@ public class BaseBusinessImp implements BaseBusiness {
         } else if (pageSize <= 0) {
             throw new BusinessException(INVALID_PAGE_SIZE);
         }
+    }
+
+    private List<DummySingleData> changeResponseToSingle(List<Post> postList, List<Product> productList, List<Quote> quoteList) {
+        List<DummySingleData> returnList = new ArrayList<>();
+        for (int i = 0; i < postList.size(); i++) {
+            returnList.add(DummySingleData.builder()
+                    .post(postList.get(i)).product(productList.get(i)).quote(quoteList.get(i))
+                    .build());
+        }
+        return returnList;
     }
 
 }
